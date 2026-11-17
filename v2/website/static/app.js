@@ -252,10 +252,6 @@ async function loadData() {
     META = m; const sm = m.data.summary;
     $('side-status-text').textContent = `${d.n} Aspen cases • model ready`; document.querySelector('.status-dot').classList.add('connected');
     const big = fmt(sm.model_rows, 0) + '+'; $('hero-total').textContent = big;
-    $('overview-total').textContent = big;
-    $('overview-total-caption').textContent = `${fmt(sm.aspen_cases, 0)} run in Aspen Plus, the rest with our Aspen-checked Python model`;
-    $('overview-case-count').textContent = fmt(sm.aspen_cases, 0); $('overview-case-caption').textContent = 'Direct Aspen Plus runs, all converged and mass-balance checked';
-    $('overview-r2').textContent = sm.model_max_rel_difference ? Number(sm.model_max_rel_difference).toExponential(1).replace('e-', 'e-') : '—';
     const B = m.bounds, rr = [['Feed rate', fmt(B.feed_kg_h[0], 0) + ' – ' + fmt(B.feed_kg_h[1], 0), 'kg/h'], ['PET share of the feed', fmt(B.pet_pct[0], 0) + ' – ' + fmt(B.pet_pct[1], 0), '%'],
       ['Crusher gap', fmt(B.crusher_gap_mm[0], 0) + ' – ' + fmt(B.crusher_gap_mm[1], 0), 'mm'], ['SCREEN1 cut', fmt(B.screen1_cut_mm[0], 0) + ' – ' + fmt(B.screen1_cut_mm[1], 0), 'mm'],
       ['SCREEN2 cut', fmt(B.screen2_cut_mm[0], 0) + ' – ' + fmt(B.screen2_cut_mm[1], 0), 'mm'], ['Tank residence time', fmt(B.residence_time_s[0], 0) + ' – ' + fmt(B.residence_time_s[1], 0), 's'],
