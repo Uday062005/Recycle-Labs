@@ -8,26 +8,33 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "v2" / "website"))
 
-try:
-    import server_v2  # noqa: E402
 
-    app = server_v2.app  # top-level `app` for Vercel's entrypoint detection
-except Exception:  # pragma: no cover - only used on a broken deployment
-    import traceback
+def _load():
+    try:
+        import server_v2  # noqa: E402
 
-    _tb = traceback.format_exc()
+        return server_v2.app
+    except Exception:  # pragma: no cover - only used on a broken deployment
+        import traceback
 
-    def _ls(p):
-        try:
-            return sorted(os.listdir(p))
-        except Exception as exc:
-            return f"<cannot list: {exc}>"
+        tb = traceback.format_exc()
 
-    _info = ("ReSort failed to start.\n\n" + _tb + f"\nPython {sys.version}\nroot: {ROOT}\nroot files: {_ls(ROOT)}\n"
-             f"v2: {_ls(ROOT / 'v2')}\nv2/website: {_ls(ROOT / 'v2' / 'website')}\nv2/data: {_ls(ROOT / 'v2' / 'data')}\n").encode()
+        def _ls(p):
+            try:
+                return sorted(os.listdir(p))
+            except Exception as exc:
+                return f"<cannot list: {exc}>"
 
-    async def app(scope, receive, send):
-        if scope["type"] != "http":
-            return
-        await send({"type": "http.response.start", "status": 500, "headers": [(b"content-type", b"text/plain; charset=utf-8")]})
-        await send({"type": "http.response.body", "body": _info})
+        info = ("ReSort failed to start.\n\n" + tb + f"\nPython {sys.version}\nroot: {ROOT}\nroot files: {_ls(ROOT)}\n"
+                f"v2: {_ls(ROOT / 'v2')}\nv2/website: {_ls(ROOT / 'v2' / 'website')}\nv2/data: {_ls(ROOT / 'v2' / 'data')}\n").encode()
+
+        async def fallback(scope, receive, send):
+            if scope["type"] != "http":
+                return
+            await send({"type": "http.response.start", "status": 500, "headers": [(b"content-type", b"text/plain; charset=utf-8")]})
+            await send({"type": "http.response.body", "body": info})
+
+        return fallback
+
+
+app = _load()  # plain top-level assignment: this is what Vercel's entrypoint detection looks for
