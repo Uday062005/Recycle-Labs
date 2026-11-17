@@ -250,7 +250,6 @@ async function loadData() {
   try {
     const [m, d] = await Promise.all([fetch('/api/meta', { cache: 'no-store' }).then(r => r.json()), fetch('/api/dataset', { cache: 'no-store' }).then(r => r.json())]);
     META = m; const sm = m.data.summary;
-    $('side-status-text').textContent = `${d.n} Aspen cases • model ready`; document.querySelector('.status-dot').classList.add('connected');
     const big = fmt(sm.model_rows, 0) + '+'; $('hero-total').textContent = big;
     const B = m.bounds, rr = [['Feed rate', fmt(B.feed_kg_h[0], 0) + ' – ' + fmt(B.feed_kg_h[1], 0), 'kg/h'], ['PET share of the feed', fmt(B.pet_pct[0], 0) + ' – ' + fmt(B.pet_pct[1], 0), '%'],
       ['Crusher gap', fmt(B.crusher_gap_mm[0], 0) + ' – ' + fmt(B.crusher_gap_mm[1], 0), 'mm'], ['SCREEN1 cut', fmt(B.screen1_cut_mm[0], 0) + ' – ' + fmt(B.screen1_cut_mm[1], 0), 'mm'],
@@ -274,6 +273,6 @@ async function loadData() {
     $('limits-list').replaceChildren(...m.limits.map(t => el('li', '', t)));
     const ct = $('cost-table'); const th = el('thead'), tr = el('tr'); ['Constant', 'Low', 'Base', 'High', 'Source / basis'].forEach(h => tr.append(el('th', '', h))); th.append(tr); ct.replaceChildren(th);
     const tb = el('tbody'); Object.entries(m.cost_constants).forEach(([k, c]) => { const r = el('tr'); [k, c.low, c.base, c.high, c.note].forEach((x, i) => r.append(el('td', i && i < 4 ? 'num' : '', String(x)))); tb.append(r); }); ct.append(tb);
-  } catch (err) { $('side-status-text').textContent = 'Data service unavailable'; toast('Cannot reach the Recycle-Labs data service.', true); }
+  } catch (err) { toast('Cannot reach the Recycle-Labs data service.', true); }
 }
 loadData();
