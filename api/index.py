@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "v2" / "website"))
-
+from server_v2 import app
 try:
     from server_v2 import app  # noqa: F401
 except Exception:  # pragma: no cover - only used on a broken deployment
