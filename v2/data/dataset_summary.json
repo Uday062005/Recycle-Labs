@@ -1,0 +1,21 @@
+{
+ "aspen_cases": 710,
+ "aspen_rows": 2130,
+ "model_rows": 12000,
+ "total_rows": 14130,
+ "sweeps": [
+  {
+   "file": "results_lhs.csv",
+   "aspen_cases": 210,
+   "rows": 630
+  },
+  {
+   "file": "results_wide.csv",
+   "aspen_cases": 500,
+   "rows": 1500
+  }
+ ],
+ "max_balance_error_pct": 4.764926662422416e-06,
+ "model_max_rel_difference": 0.0002477455929184909,
+ "note": "Aspen cases are direct Aspen Plus runs. Aspen rows = 3 tank-spread rows per case (low/high derived in Python). Model rows come from the Python flowsheet model (not Aspen)."
+}

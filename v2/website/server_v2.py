@@ -1,4 +1,4 @@
-"""ReSort v2 website backend (Starlette). Read-only: serves the UI, the Aspen-based database summary and a proposal calculator.
+"""Recycle-Labs website backend (Starlette). Read-only: serves the UI, the Aspen-based database summary and a proposal calculator.
 
 No Aspen connection at request time, no upload endpoint, no database credentials. The proposal comes from the surrogate (surrogate),
 the optimiser (optimise), the sizing model (sizing) and the cost model (cost), all fitted/validated on the v2 Aspen sweep.
@@ -214,7 +214,7 @@ def explain(c: dict, v: dict, met: dict, warns: list) -> list[str]:
     for name, m in met.items():
         key, _sense = op.LIMITS[name]
         slack = abs(m["predicted"] - m["required"]) / op.SCALE[key]
-        if slack <= 1.6 * cv.get(key, {}).get("rmse", 0.0) / op.SCALE[key] + 1e-3:
+        if slack <= 1.6 * op._margins({name: 1}, cv, 1.0)[key] / op.SCALE[key] + 1e-4:
             active.append(LABELS[name])
     if active:
         why.append("These requirements are active (the settings sit exactly at their limit): " + ", ".join(active) + ".")
@@ -274,6 +274,7 @@ def make_proposal(req: dict) -> dict:
     with price_overrides(c["prices"]):
         cost = cs.estimate(pet, v, c["feed"], c["hours_per_year"], c["budget"], c["spread"], c["location"], MODEL)
     out["why"] = explain(c, v, met, warns)
+    out["nearest_aspen_case"] = nearest_case(pet, v)
     out.update({"variables": v, "predicted": {k: _pm(k, pred_all[k]) for k in SHOW}, "spread_sensitivity": sens, "constraints_met": met,
                 "cost": cost, "annual_t": {"feed": sz.annual(c["feed"], c["hours_per_year"]), "dense": sz.annual(cost["flows_kg_h"]["dense"], c["hours_per_year"]),
                                            "light": sz.annual(cost["flows_kg_h"]["light"], c["hours_per_year"]), "fines": sz.annual(cost["flows_kg_h"]["fines"], c["hours_per_year"])}})
@@ -303,10 +304,33 @@ def _load_points() -> list[dict]:
         if path.exists():
             with open(path, newline="") as fh:
                 rows += [r for r in csv.DictReader(fh) if r["converged"] == "True" and r["spread_level"] == "default"]
-    return [{k: float(r[k]) for k in keep} for r in rows]
+    return [{**{k: float(r[k]) for k in keep}, "case_id": r["case_id"]} for r in rows]
 
 
 POINTS = _load_points()
+try:
+    SUMMARY = json.loads((S.DATA.parent / "dataset_summary.json").read_text())
+except Exception:                                   # summary file missing: fall back to what can be counted here
+    SUMMARY = {"aspen_cases": len(POINTS), "aspen_rows": 3 * len(POINTS), "model_rows": 0, "total_rows": 3 * len(POINTS), "max_balance_error_pct": None}
+
+
+def nearest_case(pet: float, v: dict) -> dict | None:
+    """Closest simulated Aspen case to the chosen settings: a direct lookup of a precomputed Aspen result, shown next to the model's answer."""
+    if not POINTS:
+        return None
+    b = S.BOUNDS
+    spec = (("PET_frac_pct", pet, b["pet"]), ("crusher_gap_mm", v["crusher_gap_mm"], b["gap"]), ("screen1_cut_mm", v["screen1_cut_mm"], b["s1"]),
+            ("screen2_cut_mm", v["screen2_cut_mm"], b["s2"]), ("residence_time_s", v["residence_time_s"], b["tau"]))
+    best, dmin = None, float("inf")
+    for p in POINTS:
+        d = math.sqrt(sum(((p[k] - x) / (rng[1] - rng[0])) ** 2 for k, x, rng in spec))
+        if d < dmin:
+            best, dmin = p, d
+    keys = ("PET_recovery_pct", "PET_purity_dense", "recycle_ratio", "d50_coarse_mm", "crusher_kWh_per_tonne_feed")
+    mp = MODEL.predict(best["PET_frac_pct"], best["crusher_gap_mm"], best["screen1_cut_mm"], best["screen2_cut_mm"], best["residence_time_s"], 0.5, 300.0)
+    return {"case_id": best["case_id"], "distance": dmin,
+            "settings": {k: best[k] for k in ("PET_frac_pct", "crusher_gap_mm", "screen1_cut_mm", "screen2_cut_mm", "residence_time_s")},
+            "aspen": {k: best[k] for k in keys}, "model_at_case": {k: float(mp[k][0]) for k in keys}}
 
 
 async def home(request):
@@ -323,9 +347,63 @@ async def meta(request):
                    "screen2_cut_mm": S.BOUNDS["s2"], "residence_time_s": S.BOUNDS["tau"], "tank_spread": [SPREADS["low"], SPREADS["high"]]},
         "defaults": {"spread": SPREADS["default"], "hours_per_day": 8, "days_per_year": 250},
         "data": {"aspen_cases": len({(p["PET_frac_pct"], p["crusher_gap_mm"], p["screen1_cut_mm"]) for p in POINTS}), "rows_used": len(POINTS),
-                 "max_balance_error_pct": 2.53e-7, "surrogate_cv": {k: {"rmse": v["rmse"], "r2": v["r2"], "max_abs": v["max_abs"]} for k, v in CV.items()}},
+                 "max_balance_error_pct": SUMMARY.get("max_balance_error_pct"), "summary": SUMMARY, "surrogate_cv": {k: {"rmse": v["rmse"], "r2": v["r2"], "max_abs": v["max_abs"]} for k, v in CV.items()}},
         "cost_constants": {k: {"low": v[0], "base": v[1], "high": v[2], "note": v[3]} for k, v in cs.COSTS.items()},
         "limits": LIMITS}))
+
+
+def _query_num(request, name, lo, hi, default, errs):
+    raw = request.query_params.get(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        x = float(raw)
+        if not math.isfinite(x):
+            raise ValueError
+    except ValueError:
+        errs.append({"field": name, "message": f"{name} must be a number."})
+        return default
+    if not lo <= x <= hi:
+        errs.append({"field": name, "message": f"{name} must be between {lo:g} and {hi:g} (the simulated range)."})
+    return x
+
+
+async def curves(request):
+    """Line charts for the insights page: sweeps of one setting at a time from the Python model (no Aspen). Read-only."""
+    errs: list = []
+    b = S.BOUNDS
+    pet = _query_num(request, "pet", *b["pet"], 45.0, errs)
+    gap = _query_num(request, "gap", *b["gap"], 10.0, errs)
+    s1 = _query_num(request, "s1", *b["s1"], 10.0, errs)
+    s2 = _query_num(request, "s2", *b["s2"], 2.0, errs)
+    tau = _query_num(request, "tau", *b["tau"], 30.0, errs)
+    sg = _query_num(request, "spread", SPREADS["low"], SPREADS["high"], SPREADS["default"], errs)
+    if errs:
+        return JSONResponse({"errors": errs}, status_code=422)
+    n = 61
+    lin = lambda k: np.linspace(b[k][0], b[k][1], n)  # noqa: E731
+    r4 = lambda a: [round(float(v), 4) for v in a]  # noqa: E731
+    out: dict = {"settings": {"pet": pet, "gap": gap, "s1": s1, "s2": s2, "tau": tau, "spread": sg}}
+    x = lin("tau")
+    out["tau"] = {"x": r4(x), "series": {}}
+    for s in (SPREADS["low"], SPREADS["default"], SPREADS["high"]):
+        p = MODEL.predict(pet, gap, s1, s2, x, s, 300.0)
+        out["tau"]["series"][str(s)] = {"PET_recovery_pct": r4(p["PET_recovery_pct"]), "PET_purity_dense": r4(p["PET_purity_dense"])}
+    x = lin("s1")
+    out["s1"] = {"x": r4(x), "series": {}}
+    for g in (6, 10, 14, 18):
+        p = MODEL.predict(pet, g, x, s2, tau, sg, 300.0)
+        out["s1"]["series"][str(g)] = {"recycle_ratio": r4(p["recycle_ratio"]), "d50_coarse_mm": r4(p["d50_coarse_mm"])}
+    x = lin("gap")
+    p = MODEL.predict(pet, x, s1, s2, tau, sg, 300.0)
+    out["gap"] = {"x": r4(x), "kwh": r4(p["crusher_kWh_per_tonne_feed"]), "d50": r4(p["d50_coarse_mm"]), "p80": r4(p["crusher_P80_mm"])}
+    x = lin("s2")
+    p = MODEL.predict(pet, gap, s1, x, tau, sg, 300.0)
+    out["s2"] = {"x": r4(x), "fines_loss_pct": r4(p["fines_loss_pct"]), "yield_pct": r4(p["yield_pct"])}
+    x = lin("pet")
+    p = MODEL.predict(x, gap, s1, s2, tau, sg, 300.0)
+    out["pet"] = {"x": r4(x), "dense": r4(p["dense_flow"]), "light": r4(p["light_flow"]), "fines": r4(p["fines_flow"])}
+    return JSONResponse(out)
 
 
 async def dataset(request):
@@ -345,6 +423,6 @@ async def proposal(request):
 
 
 app = Starlette(routes=[
-    Route("/", home), Route("/api/health", health), Route("/api/meta", meta), Route("/api/dataset", dataset, methods=["GET"]),
+    Route("/", home), Route("/api/health", health), Route("/api/meta", meta), Route("/api/dataset", dataset, methods=["GET"]), Route("/api/curves", curves, methods=["GET"]),
     Route("/api/proposal", proposal, methods=["POST"]), Mount("/assets", StaticFiles(directory=HERE / "static"), name="assets"),
 ])
