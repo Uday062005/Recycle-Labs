@@ -306,5 +306,5 @@ async def proposal(request):
 
 app = Starlette(routes=[
     Route("/", home), Route("/api/health", health), Route("/api/meta", meta), Route("/api/dataset", dataset, methods=["GET"]),
-    Route("/api/proposal", proposal, methods=["POST"]), Mount("/assets", StaticFiles(directory=HERE / "public"), name="assets"),
+    Route("/api/proposal", proposal, methods=["POST"]), Mount("/assets", StaticFiles(directory=HERE / "static"), name="assets"),
 ])
