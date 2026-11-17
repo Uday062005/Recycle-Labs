@@ -32,14 +32,14 @@ function updateCompo() {
   return okay;
 }
 ['pet', 'hdpe', 'pp'].forEach(id => $(id).addEventListener('input', updateCompo)); updateCompo();
-$('mode').addEventListener('change', () => { $('manual-box').hidden = $('mode').value !== 'evaluate'; });
+$('mode').addEventListener('change', () => { $('manual-box').hidden = $('mode').value !== 'evaluate'; $('objective-box').hidden = $('mode').value === 'evaluate'; });
 
 const opt = id => { const s = $(id).value.trim(); return s === '' ? null : Number(s); };
 function buildRequest() {
   const prices = {}; [['dense_usd_t', 'p-dense'], ['light_usd_t', 'p-light'], ['scrap_usd_t', 'p-scrap'], ['electricity_usd_kwh', 'p-power'], ['wage_usd_h', 'p-wage']].forEach(([k, id]) => { const v = opt(id); if (v !== null) prices[k] = v; });
   const lf = {}; [['capex_factor', 'f-capex'], ['labour_factor', 'f-labour']].forEach(([k, id]) => { const v = opt(id); if (v !== null) lf[k] = v; });
   const req = {
-    feed_rate_kg_h: opt('feed'), hours_per_day: opt('hours'), days_per_year: opt('days'), mode: $('mode').value,
+    feed_rate_kg_h: opt('feed'), hours_per_day: opt('hours'), days_per_year: opt('days'), mode: $('mode').value, objective: $('objective').value,
     composition: { PET: opt('pet'), HDPE: opt('hdpe'), PP: opt('pp') }, feed_top_size_mm: opt('feed-size'),
     product_d50_min_mm: opt('d50min'), product_d50_max_mm: opt('d50max'), target: $('target').value, min_purity_pct: opt('purity'), min_recovery_pct: opt('recovery'),
     budget_usd: opt('budget'), prices, location_factors: lf, location_text: $('location').value.trim()
@@ -76,7 +76,7 @@ function renderProposal(p) {
     return;
   }
   const v = p.variables, c = p.cost, z = c.sizing;
-  $('recommendation-subtitle').textContent = p.mode === 'optimise' ? 'Lowest-energy settings that meet your requirements' : 'Predictions for your own settings';
+  $('recommendation-subtitle').textContent = p.mode === 'optimise' ? ({ payback: 'Settings with the shortest payback that meet your requirements', profit: 'Settings with the highest annual profit that meet your requirements', recovery: 'Settings with the highest product recovery that meet your requirements', energy: 'Lowest-energy settings that meet your requirements' }[p.objective] || 'Optimised settings') : 'Predictions for your own settings';
   $('selection-method').textContent = (p.mode === 'optimise' ? 'OPTIMISED SETTINGS' : 'YOUR SETTINGS') + ' · SURROGATE PREDICTION · NOT A LIVE ASPEN RUN';
   body.append(section('Operating settings', gridItems([['Crusher gap', fmt(v.crusher_gap_mm, 2) + ' mm'], ['Screen 1 cut', fmt(v.screen1_cut_mm, 2) + ' mm'], ['Screen 2 cut', fmt(v.screen2_cut_mm, 2) + ' mm'], ['Tank residence', fmt(v.residence_time_s, 1) + ' s']])));
   if (p.warnings.length) body.append(section('Notes for this case', list(p.warnings)));

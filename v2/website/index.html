@@ -23,6 +23,38 @@
  <div class="metric-row"><div class="metric"><small>PROCESS STAGES</small><b>04</b><span>Crushing → screening → sink-float separation</span></div><div class="metric"><small>ASPEN SIMULATIONS</small><b id="overview-case-count">—</b><span id="overview-case-caption">Loading database status…</span></div><div class="metric"><small>SURROGATE ACCURACY</small><b id="overview-r2">—</b><span id="overview-r2-caption">Cross-validated R² (worst output)</span></div></div>
  <div class="section-head"><div><div class="eyebrow">THE PROCESS</div><h2>From mixed scrap to usable flakes.</h2></div><button class="text-link" data-go="calculator">Design a process ↗</button></div>
  <div class="process-grid"><div class="process-step"><span class="process-number">01 / FEED</span><div class="process-emoji">◈</div><h3>Characterize</h3><p>Define flow, PET share and operating hours.</p></div><div class="process-step"><span class="process-number">02 / CRUSH</span><div class="process-emoji">⚙</div><h3>Size reduction</h3><p>Crusher gap sets flake size, recycle load and power.</p></div><div class="process-step"><span class="process-number">03 / SCREEN</span><div class="process-emoji">▦</div><h3>Classify</h3><p>Separate oversize recycle, useful flakes and fines.</p></div><div class="process-step"><span class="process-number">04 / SEPARATE</span><div class="process-emoji">◉</div><h3>Recover</h3><p>Sink-float tank splits PET-rich and PE/PP-rich streams.</p></div></div>
+ <div class="panel flowsheet-panel"><div class="chart-head"><div><h2>Process flowsheet (as simulated in Aspen Plus)</h2><p>Block names are the Aspen block and stream names. The oversize recycle returns to the mixer.</p></div></div>
+ <svg class="flowsheet" viewBox="0 30 1000 290" role="img" aria-label="Flowsheet: FEED to MIX1 to CRUSH to SCREEN1; SCREEN1 oversize recycles to MIX1; SCREEN1 undersize to SCREEN2; SCREEN2 fines leave as waste; SCREEN2 coarse to DENSEP; DENSEP gives DENSE (PET-rich) and LIGHT (PE/PP-rich).">
+  <defs><marker id="fs-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#39755b"/></marker></defs>
+  <g class="fs-line" marker-end="url(#fs-arrow)">
+   <path d="M62 170H112"/><path d="M212 170H262"/><path d="M362 170H412"/>
+   <path d="M512 170H562"/><path d="M662 170H712"/>
+   <path d="M812 150L880 100"/><path d="M812 190L880 240"/>
+   <path d="M612 205V262"/>
+   <path class="fs-recycle" d="M462 135V62H162V135"/>
+  </g>
+  <g class="fs-box">
+   <rect x="115" y="135" width="100" height="70" rx="10"/><rect x="265" y="135" width="100" height="70" rx="10"/>
+   <rect x="415" y="135" width="100" height="70" rx="10"/><rect x="565" y="135" width="100" height="70" rx="10"/>
+   <rect x="715" y="135" width="100" height="70" rx="10" class="fs-sep"/>
+  </g>
+  <g class="fs-text" text-anchor="middle">
+   <text x="165" y="165" class="b">MIX1</text><text x="165" y="185" class="s">Mixer</text>
+   <text x="315" y="165" class="b">CRUSH</text><text x="315" y="185" class="s">Crusher (gap)</text>
+   <text x="465" y="165" class="b">SCREEN1</text><text x="465" y="185" class="s">Cut 5–15 mm</text>
+   <text x="615" y="165" class="b">SCREEN2</text><text x="615" y="185" class="s">Cut 1–3 mm</text>
+   <text x="765" y="165" class="b">DENSEP</text><text x="765" y="185" class="s">Sink-float tank</text>
+   <text x="30" y="160" class="s">FEED</text><text x="30" y="178" class="s">kg/h</text>
+   <text x="312" y="52" class="s">OVERSIZE recycle</text>
+   <text x="390" y="161" class="s t" text-anchor="middle">CRUSHED</text>
+   <text x="540" y="161" class="s t" text-anchor="middle">UNDER1</text>
+   <text x="690" y="161" class="s t" text-anchor="middle">COARSE</text>
+   <text x="612" y="282" class="b">FINES</text><text x="612" y="300" class="s">waste</text>
+   <text x="945" y="97" class="b">DENSE</text><text x="945" y="115" class="s">PET-rich</text>
+   <text x="945" y="247" class="b">LIGHT</text><text x="945" y="265" class="s">PE/PP-rich</text>
+  </g>
+ </svg>
+ <p class="help">Reading it: crushed flakes are screened; flakes still too big (OVERSIZE) go round again through the crusher, which is why the crusher handles more than the fresh feed. Undersize passes SCREEN2, which removes fines. The remaining flakes enter a water tank: PET (denser than water) sinks to DENSE, PE and PP float to LIGHT. In Aspen, DENSEP is a fixed-split separator whose fractions come from the settling-velocity calculation.</p></div>
  <div class="info-band"><div><div class="eyebrow">MODEL INTEGRITY</div><h3>Preliminary, with the limits on the table.</h3><p>Every proposal states its limits: purity depends on assumed tank parameters, costs are a ±30 % class estimate with scenario ranges, and no live Aspen run happens when you press the button.</p></div></div>
 </section>
 
@@ -32,6 +64,7 @@
  <form id="design-form" novalidate>
  <div class="field-grid"><label class="field">Feed rate <small>kg/hr, 100–500</small><input id="feed" type="number" step="any" value="300" required></label><label class="field">Operating hours <small>hr/day</small><input id="hours" type="number" step="any" value="8" required></label></div>
  <div class="field-grid"><label class="field">Operating days <small>per year</small><input id="days" type="number" step="any" value="250" required></label><label class="field">Mode <select id="mode"><option value="optimise">Find best settings</option><option value="evaluate">Check my own settings</option></select></label></div>
+ <div class="field-grid" id="objective-box"><label class="field">Best settings for <small>what the search optimises</small><select id="objective"><option value="payback">Shortest payback</option><option value="profit">Highest annual profit</option><option value="recovery">Highest product recovery</option><option value="energy">Lowest crusher energy</option></select></label></div>
  <label class="field">Polymer composition <small>mass % — must total 100; PET 30–60</small></label><div class="field-grid three"><label class="field sub">PET<input id="pet" type="number" step="any" value="45" required></label><label class="field sub">HDPE<input id="hdpe" type="number" step="any" value="30" required></label><label class="field sub">PP<input id="pp" type="number" step="any" value="25" required></label></div><div class="composition-bar"><i id="bar-pet"></i><i id="bar-hdpe"></i><i id="bar-pp"></i></div><div id="composition-status" class="help">Baseline composition: 45% PET / 30% HDPE / 25% PP.</div>
  <div class="field-grid"><label class="field">Product d50 min <small>mm, optional</small><input id="d50min" type="number" step="any" placeholder="e.g. 4.5"></label><label class="field">Product d50 max <small>mm, optional</small><input id="d50max" type="number" step="any" placeholder="e.g. 6.5"></label></div>
  <div class="field-grid"><label class="field">Feed top particle size <small>mm, optional, not used</small><input id="feed-size" type="number" step="any" placeholder="fixed in simulations"></label><label class="field">Location <small>note only</small><input id="location" type="text" placeholder="City / region"></label></div>

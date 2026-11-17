@@ -1,6 +1,6 @@
 """v2 cost model: capex, opex, revenue per product stream, simple payback, budget filter, location factors. PRELIMINARY (+-30 % class at best).
 
-Every constant carries a note (COSTS) with its source or the word ASSUMPTION and an accuracy remark; all are also listed in assumptions_v2.md.
+Every constant carries a note (COSTS) with its source or the word ASSUMPTION and an accuracy remark; all are also listed in assumptions.md.
 Results are returned as optimistic / base / pessimistic scenarios (ranges), never a single number.
 Currency: USD. Payback = installed capex / annual net cash (simple, undiscounted, no tax, no depreciation, no financing).
 Product quality (purity) does not change the price in this model; price ranges stand in for that.
@@ -135,3 +135,46 @@ def estimate(pet: float, variables: dict, feed_rate_kg_h: float = 300.0, hours_p
                     "Equipment is at its practical minimum size at this scale (min screen area, min tank volume), so costs are floor-driven.",
                     "Purity and recovery depend on assumed tank parameters (residence time, spread)."]
     return out
+
+
+# ---------------------------------------------------------------- vectorised economics (used by the optimiser)
+def economics_vec(pred: dict, v: "np.ndarray", pet: float, feed_rate_kg_h: float, hours_per_year: float, scenario: int = 1,
+                  location: dict | None = None) -> dict:
+    """capex, net cash and payback for many candidate settings at once. `pred` = surrogate.predict(..., feed=300) arrays,
+    `v` = (n, 4) array of [gap, SCREEN1 cut, SCREEN2 cut, residence time]. scenario 0/1/2 = optimistic/base/pessimistic.
+    Same formulas as estimate() (the tests check that the two agree). Uses the current COSTS values, so price overrides apply."""
+    import numpy as np
+    loc = {**LOCATION_DEFAULT, **(location or {})}
+    sc = feed_rate_kg_h / 300.0
+    thr, power = pred["crusher_throughput_kg_h"] * sc, pred["crusher_power_kW"] * sc
+    fines, dense, light = pred["fines_flow"] * sc, pred["dense_flow"] * sc, pred["light_flow"] * sc
+    motors = np.array(sz.MOTORS_KW, float)
+    need = power * sz.SIZING["motor_service_factor"]
+    motor = motors[np.minimum(np.searchsorted(motors, need, side="left"), len(motors) - 1)]
+    pts = np.array(sz.SCREEN_TABLE)                                   # (aperture, t/h/m2)
+    unit_cap = lambda ap: np.exp(np.interp(np.log(ap), np.log(pts[:, 0]), np.log(pts[:, 1])))  # noqa: E731
+    q = lambda ap: unit_cap(ap) * sz.SIZING["bulk_density_kg_m3"] / sz.STD_BULK_DENSITY * sz.SIZING["screen_service_factor"]  # noqa: E731
+    a1 = np.maximum(thr / 1000.0 / q(v[:, 1]), sz.SIZING["screen_min_area_m2"])
+    a2 = np.maximum(feed_rate_kg_h / 1000.0 / q(v[:, 2]), sz.SIZING["screen_min_area_m2"])
+    comp = S.composition_from_pet(pet)
+    rho_s = 1.0 / sum((comp[c] / 100.0) / tk.CONFIG["densities"][c] for c in comp)
+    ws = sz.SIZING["tank_solids_mass_frac"]
+    rho_w = tk.water_density(tk.CONFIG["temp_C"])
+    rho_slurry = 1.0 / (ws / rho_s + (1.0 - ws) / rho_w)
+    tank = np.maximum((feed_rate_kg_h - fines) / ws / rho_slurry * v[:, 3] / 3600.0, sz.SIZING["tank_min_volume_m3"])
+    n = _c("scale_exponent", 1)
+    main = _c("crusher_ref_usd_30kW", 1) * (motor / 30.0) ** n + _c("screen_ref_usd_1m2", 1) * (a1 ** n + a2 ** n) + _c("tank_ref_usd_1m3", 1) * tank ** n
+    capex = main * (1 + _c("auxiliary_factor", 1)) * _c("installation_factor", 1) * CAPEX_RANGE[scenario] * loc["capex_factor"]
+    k = OPEX_RANGE[scenario]
+    t = lambda kg_h: kg_h * hours_per_year / 1000.0  # noqa: E731
+    elec = power * (1 + _c("aux_power_frac", 1)) * hours_per_year * _c("electricity_usd_kWh", 1) * loc["electricity_factor"] * k
+    mo = _c("product_moisture_frac", 1)
+    water = (t(dense) + t(light)) * mo / (1 - mo) * _c("water_usd_m3", 1) * loc["water_factor"] * k
+    labour = _c("operators", 1) * _c("wage_usd_h", 1) * hours_per_year * loc["labour_factor"] * k
+    maint = capex * _c("maintenance_frac_capex", 1) * k
+    lvl_price, lvl_scrap = 2 - scenario, scenario
+    revenue = t(dense) * _c("price_dense_usd_t", lvl_price) + t(light) * _c("price_light_usd_t", lvl_price) + t(fines) * _c("price_fines_usd_t", lvl_price)
+    net = revenue - (elec + water + labour + maint) - t(np.full_like(dense, feed_rate_kg_h)) * _c("price_scrap_usd_t", lvl_scrap)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        payback = np.where(net > 0, capex / net, np.inf)
+    return {"capex_usd": capex, "net_usd_per_year": net, "payback_years": payback, "motor_kW": motor}

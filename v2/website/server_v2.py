@@ -1,9 +1,10 @@
 """ReSort v2 website backend (Starlette). Read-only: serves the UI, the Aspen-based database summary and a proposal calculator.
 
-No Aspen connection at request time, no upload endpoint, no database credentials. The proposal comes from the surrogate (surrogate_v2),
-the optimiser (optimise_v2), the sizing model (sizing_v2) and the cost model (cost_v2), all fitted/validated on the v2 Aspen sweep.
+No Aspen connection at request time, no upload endpoint, no database credentials. The proposal comes from the surrogate (surrogate),
+the optimiser (optimise), the sizing model (sizing) and the cost model (cost), all fitted/validated on the v2 Aspen sweep.
 
-Deployed through api/index.py (Vercel) or locally with: python -m uvicorn index:app --app-dir api --port 8000
+Run (aspen-mcp venv has numpy, starlette, uvicorn):
+    aspen-mcp\\.venv\\Scripts\\python.exe -m uvicorn server:app --app-dir website --port 8000
 """
 from __future__ import annotations
 
@@ -135,6 +136,9 @@ def validate(req: dict) -> tuple[dict, list, list]:
         v = _num((req.get("prices") or {}).get(k), f"prices.{k}", errs, 0, None, optional=True, msg=f"Price/cost '{k}' must be a number, 0 or more.")
         if v is not None:
             c["prices"][k] = v
+    c["objective"] = req.get("objective", "payback")
+    if c["objective"] not in op.OBJECTIVES:
+        errs.append({"field": "objective", "message": "objective must be one of: payback (shortest payback), profit (highest annual net cash), recovery (highest recovery of the preferred product) or energy (lowest crusher energy)."})
     c["mode"] = req.get("mode", "optimise")
     if c["mode"] not in ("optimise", "evaluate"):
         errs.append({"field": "mode", "message": "mode must be 'optimise' or 'evaluate'."})
@@ -210,14 +214,17 @@ def make_proposal(req: dict) -> dict:
         cons[pk] = c["purity"] / 100.0
     if c["recovery"] is not None:
         cons[rk] = c["recovery"]
-    out = {"status": "ok", "mode": c["mode"], "inputs": {k: c[k] for k in ("feed", "hours_per_year", "pet", "target", "budget", "spread")}, "constraints": cons, "warnings": warns, "limits": LIMITS}
+    out = {"status": "ok", "mode": c["mode"], "inputs": {k: c[k] for k in ("feed", "hours_per_year", "pet", "target", "budget", "spread", "objective")}, "constraints": cons, "warnings": warns, "limits": LIMITS}
     if c["mode"] == "optimise":
-        sol = op.optimise(pet, cons, spread=c["spread"], feed=300.0, safety=1.0, model=MODEL)
+        with price_overrides(c["prices"]):       # the money objectives must see the customer's own prices
+            sol = op.optimise(pet, cons, spread=c["spread"], feed=300.0, safety=1.0, model=MODEL, objective=c["objective"],
+                              plant_feed_kg_h=c["feed"], hours_per_year=c["hours_per_year"], target=c["target"], location=c["location"])
         if sol["status"] != "ok":
             return {**out, "status": "infeasible", "message": "No setting inside the modelled ranges meets all of your requirements (with a safety margin equal to the surrogate's error).",
                     "closest_settings": sol["closest_point"], "achievable_at_this_composition": achievable(pet)}
         variables = sol["variables"]
         out["n_feasible_of_random"] = [sol["n_feasible_of_random"], sol["n_random"]]
+        out["objective"] = c["objective"]
     else:
         variables = c["variables"]
     v = variables
