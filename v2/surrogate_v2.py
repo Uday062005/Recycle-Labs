@@ -1,13 +1,13 @@
-"""v2 surrogate: structured quadratic regression on data/results_v2_lhs.csv.
+"""Surrogate: structured CUBIC regression on data/results_v2_lhs.csv (the tank split is fitted as w = probit(split) x spread).
 
 Inputs : PET fraction (%), crusher gap, SCREEN1 cut, SCREEN2 cut, residence time, tank spread (optional, default 0.5).
          Composition is ONE number (PET %): the three V5 compositions lie on a line (HDPE 40-(PET-30)*2/3 %, PP the rest), so nothing else is identifiable.
-Models (each a full quadratic polynomial in inputs scaled to [-1, 1], ridge 1e-9):
+Models (each a full cubic polynomial in inputs scaled to [-1, 1], ridge 1e-9):
   Aspen group (4 inputs, default-spread rows): ln(oversize), fines, COARSE flow of PET / HDPE / PP, F80, d50 of COARSE.
-  Tank group  (6 inputs, all rows)           : logit(split_PET), ln(split_HDPE + 1e-4), ln(split_PP + 1e-4).
+  Tank group  (6 inputs, all 630 rows)       : w_c = probit(split_c) x spread for PET / HDPE / PP; split_c = Phi(w_c / spread).
 Everything else is DERIVED with the exact relations (mass balance closes by construction):
   coarse = feed - fines (components rescaled), dense_c = split_c * coarse_c, light_c = (1 - split_c) * coarse_c,
-  purities / recoveries / losses from tank_v2.separation_metrics, crusher power from crusher_v2 (Bond, calibrated Wi) with
+  purities / recoveries / losses from tank.separation_metrics, crusher power from crusher (Bond, calibrated Wi) with
   throughput = feed + oversize and P80 from the gap.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ import tank_v2 as tk
 DATA = C.ROOT / "data" / "results_v2_lhs.csv"
 MODEL_JSON = C.ROOT / "data" / "surrogate_v2.json"
 FEED_DEFAULT = 300.0
-BOUNDS = {"pet": (30.0, 60.0), "gap": (6.0, 14.0), "s1": (5.0, 15.0), "s2": (1.0, 3.0), "tau": (10.0, 40.0),
+BOUNDS = {"pet": (20.0, 70.0), "gap": (6.0, 18.0), "s1": (5.0, 18.0), "s2": (1.0, 5.0), "tau": (10.0, 80.0),
           "lnsig": (math.log(0.25), math.log(1.0))}
 ASPEN_VARS = ("pet", "gap", "s1", "s2")
 TANK_VARS = ("pet", "gap", "s1", "s2", "tau", "lnsig")
@@ -99,9 +99,24 @@ def _expit(x):
     return 1.0 / (1.0 + np.exp(-x))
 
 
-def load_rows(path: Path = DATA) -> list[dict]:
-    with open(path, newline="") as fh:
-        return [r for r in csv.DictReader(fh) if r["converged"] == "True"]
+TRAIN_FILES = [DATA, DATA.with_name("results_synthetic.csv")]      # Aspen sweep + replica data (src/emulator.py)
+HOLDOUT_FILE = DATA.with_name("results_wide.csv")                  # real Aspen sweep over the wide ranges: used only to test, then added
+
+
+def load_model():
+    """The model used by the optimiser, cost model and website: the vectorised Python replica of the Aspen flowsheet (no regression error)."""
+    from emulator import PhysicsModel
+    return PhysicsModel()
+
+
+def load_rows(path: Path | list[Path] | None = None) -> list[dict]:
+    paths = TRAIN_FILES if path is None else ([path] if isinstance(path, Path) else path)
+    rows: list[dict] = []
+    for pth in paths:
+        if Path(pth).exists():
+            with open(pth, newline="") as fh:
+                rows += [r for r in csv.DictReader(fh) if r["converged"] == "True"]
+    return rows
 
 
 def _arr(rows, key):
@@ -208,6 +223,17 @@ def cross_validate(rows: list[dict], k: int = 10, seed: int = 1) -> dict:
     return res
 
 
+def holdout_errors(model: "Surrogate", rows: list[dict]) -> dict:
+    p = model.predict(_arr(rows, "PET_frac_pct"), _arr(rows, "crusher_gap_mm"), _arr(rows, "screen1_cut_mm"), _arr(rows, "screen2_cut_mm"),
+                      _arr(rows, "residence_time_s"), _arr(rows, "tank_spread"))
+    res = {}
+    for key in KEYS:
+        e = p[key] - _arr(rows, key); y = _arr(rows, key)
+        res[key] = {"rmse": float(np.sqrt((e ** 2).mean())), "max_abs": float(np.abs(e).max()), "r2": float(1 - (e ** 2).sum() / ((y - y.mean()) ** 2).sum()),
+                    "range": [float(y.min()), float(y.max())], "n": int(len(y))}
+    return res
+
+
 if __name__ == "__main__":
     rows = load_rows()
     cv = cross_validate(rows)
@@ -215,6 +241,20 @@ if __name__ == "__main__":
     print(f"{'output':<28}{'RMSE':>9}{'MAE':>9}{'max|e|':>9}{'R2':>8}   data range")
     for k, v in cv.items():
         print(f"{k:<28}{v['rmse']:>9.4g}{v['mae']:>9.4g}{v['max_abs']:>9.4g}{v['r2']:>8.3f}   {v['range'][0]:.4g} .. {v['range'][1]:.4g}")
+    extra = {"n_rows": len(rows)}
+    hold = load_rows([HOLDOUT_FILE])
+    if hold:                                    # independent test on real Aspen rows the model has not seen
+        h = holdout_errors(Surrogate().fit(rows), hold)
+        print(); print(f"HOLDOUT: {len(hold)} real Aspen rows over the wide ranges (not used for this fit)")
+        print(f"{'output':<28}{'RMSE':>9}{'max|e|':>9}{'R2':>8}")
+        for k, v in h.items():
+            print(f"{k:<28}{v['rmse']:>9.4g}{v['max_abs']:>9.4g}{v['r2']:>8.3f}")
+            cv[k]["rmse"] = max(cv[k]["rmse"], v["rmse"])        # margins and tolerances use the larger (honest) error
+            cv[k]["max_abs"] = max(cv[k]["max_abs"], v["max_abs"])
+        extra["aspen_holdout"] = h
+        rows = rows + hold                       # final model also learns from the real wide rows
+        extra["n_rows"] = len(rows)
+    extra["cv"] = cv
     m = Surrogate().fit(rows)
-    m.save(extra={"cv": cv, "n_rows": len(rows)})
+    m.save(extra=extra)
     print("saved", MODEL_JSON)

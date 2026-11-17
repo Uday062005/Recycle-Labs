@@ -31,8 +31,8 @@ import sizing_v2 as sz  # noqa: E402
 import surrogate_v2 as S  # noqa: E402
 import tank_v2 as tk  # noqa: E402
 
-DATA_CSV = S.DATA
-MODEL = S.Surrogate.load()
+DATA_CSVS = [S.DATA, S.DATA.with_name("results_wide.csv")]     # real Aspen sweeps (the second one is the wide-range sweep)
+MODEL = S.load_model()
 CV = json.loads(S.MODEL_JSON.read_text())["cv"]
 SPREADS = {"low": tk.CONFIG["spread_low"], "default": tk.CONFIG["spread"], "high": tk.CONFIG["spread_high"]}
 FEED_RANGE = (100.0, 500.0)
@@ -48,7 +48,7 @@ LIMITS = [
     "Capex is a +-30 % class estimate at best; granulator prices vary 2-5x between vendors. Prices, scrap cost, utilities and wages are assumptions you can replace.",
     "Washing, drying, colour/metal sorting, contamination losses, selling costs, working capital, tax and financing are not modelled.",
     "PVC and PS are not modelled; in water they would sink with PET and cannot be separated from it by sink-float.",
-    "Feed particle size distribution is fixed in the simulations; composition is described by the PET share (30-60 %) with HDPE:PP following the simulated mixes.",
+    "Feed particle size distribution is fixed in the simulations; composition is described by the PET share (20-70 %) with HDPE:PP following the simulated mixes.",
 ]
 _LOCK = threading.Lock()
 
@@ -298,8 +298,11 @@ def _clean(o):
 def _load_points() -> list[dict]:
     keep = ["PET_frac_pct", "crusher_gap_mm", "screen1_cut_mm", "screen2_cut_mm", "residence_time_s", "recycle_ratio", "fines_loss_pct", "yield_pct",
             "d50_coarse_mm", "crusher_kWh_per_tonne_feed", "PET_purity_dense", "PE_PP_purity_light", "PET_recovery_pct", "PEPP_recovery_pct"]
-    with open(DATA_CSV, newline="") as fh:
-        rows = [r for r in csv.DictReader(fh) if r["converged"] == "True" and r["spread_level"] == "default"]
+    rows = []
+    for path in DATA_CSVS:
+        if path.exists():
+            with open(path, newline="") as fh:
+                rows += [r for r in csv.DictReader(fh) if r["converged"] == "True" and r["spread_level"] == "default"]
     return [{k: float(r[k]) for k in keep} for r in rows]
 
 

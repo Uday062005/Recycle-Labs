@@ -76,7 +76,7 @@ def optimise(pet: float, constraints: dict, spread: float = 0.5, feed: float = S
     bad = [k for k in constraints if k not in LIMITS]
     if bad:
         raise ValueError(f"unknown constraints {bad}; allowed {sorted(LIMITS)}")
-    model = model or S.Surrogate.load()
+    model = model or S.load_model()
     cv = _load_cv()
     margin = {LIMITS[n][0]: safety * cv.get(LIMITS[n][0], {}).get("rmse", 0.0) for n in constraints}
     rec_key = "PET_recovery_pct" if target == "pet" else "PEPP_recovery_pct"

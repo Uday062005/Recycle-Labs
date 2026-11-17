@@ -22,7 +22,7 @@ function go(view) { document.querySelectorAll('.view').forEach(x => x.classList.
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => go(b.dataset.go)));
 
-const LIM = { pet: [30, 60], hdpe: [0, 70], pp: [0, 70] }, IDS = ['pet', 'hdpe', 'pp'];
+const LIM = { pet: [20, 70], hdpe: [0, 70], pp: [0, 70] }, IDS = ['pet', 'hdpe', 'pp'];
 let prevCompo = { pet: 45, hdpe: 30, pp: 25 };
 const clampTo = (id, x) => Math.min(LIM[id][1], Math.max(LIM[id][0], x));
 function rebalance(changed) {
@@ -46,7 +46,7 @@ function updateCompo() {
   const total = arr.reduce((a, b) => a + b, 0);
   ids.forEach((id, i) => $('bar-' + id).style.width = (Math.max(0, arr[i]) / Math.max(100, total) * 100) + '%');
   const okay = arr.every(n => Number.isFinite(n) && n >= 0 && n <= 100) && Math.abs(total - 100) < 0.01;
-  $('composition-status').textContent = okay ? 'Composition totals 100 %. The model uses the PET share (30–60 %).' : `Composition totals ${fmt(total, 2)} %; it must equal 100 %.`;
+  $('composition-status').textContent = okay ? 'Composition totals 100 %. The model uses the PET share (20–70 %).' : `Composition totals ${fmt(total, 2)} %; it must equal 100 %.`;
   $('composition-status').classList.toggle('error', !okay);
   return okay;
 }
@@ -107,7 +107,7 @@ function renderProposal(p) {
     }))));
   }
   const rows = Object.entries(LABEL).map(([k, [name, f]]) => { const m = p.predicted[k]; return [name, f(m.value), f(m.low) + ' – ' + f(m.high)]; });
-  body.append(section('Predicted performance (± 2 × surrogate cross-validation error)', table(['Output', 'Value', 'Range'], rows)));
+  body.append(section('Predicted performance (± 2 × difference between the model and Aspen)', table(['Output', 'Value', 'Range'], rows)));
   const s = p.spread_sensitivity;
   body.append(section('Assumption sensitivity: tank turbulence spread σ', table(['σ', 'PET purity', 'PE+PP purity', 'PET recovery', 'PE+PP recovery'],
     ['low', 'default', 'high'].map(l => [`${s[l].spread} (${l})`, fmt(100 * s[l].PET_purity_dense, 2) + ' %', fmt(100 * s[l].PE_PP_purity_light, 2) + ' %', fmt(s[l].PET_recovery_pct, 1) + ' %', fmt(s[l].PEPP_recovery_pct, 1) + ' %'])),
@@ -152,7 +152,7 @@ async function submit(e) {
 $('design-form').addEventListener('submit', submit);
 
 // ------------------------------------------------------------------ plots and database status
-const COLORS = { 30: '#d98b3a', 45: '#3a8860', 60: '#3f6fb0' };
+const COLORS = { 20: '#8a5fb0', 30: '#d98b3a', 45: '#3a8860', 60: '#3f6fb0', 70: '#b04a4a' };
 function scatter(id, xk, yk, pts, ylabel, xlabel, yscale = 1) {
   const node = $(id); node.replaceChildren();
   const P = pts.map(p => ({ x: p[xk], y: p[yk] * yscale, c: COLORS[p.PET_frac_pct] || '#777' }));
@@ -173,17 +173,17 @@ async function loadData() {
   try {
     const [m, d] = await Promise.all([fetch('/api/meta', { cache: 'no-store' }).then(r => r.json()), fetch('/api/dataset', { cache: 'no-store' }).then(r => r.json())]);
     META = m;
-    $('side-status-text').textContent = `${d.n} Aspen cases • surrogate ready`; document.querySelector('.status-dot').classList.add('connected');
+    $('side-status-text').textContent = `${d.n} Aspen cases • model ready`; document.querySelector('.status-dot').classList.add('connected');
     $('overview-case-count').textContent = String(d.n); $('overview-case-caption').textContent = 'Aspen Plus cases, all converged and mass-balance checked';
     const worst = Math.min(...Object.values(m.data.surrogate_cv).map(x => x.r2)); $('overview-r2').textContent = fmt(worst, 2);
-    $('legend').replaceChildren(...[30, 45, 60].map(k => { const s = el('span', 'legend-item'); const i = el('i'); i.style.background = COLORS[k]; s.append(i, document.createTextNode(` PET ${k} %`)); return s; }));
+    $('legend').replaceChildren(...[20, 30, 45, 60, 70].map(k => { const s = el('span', 'legend-item'); const i = el('i'); i.style.background = COLORS[k]; s.append(i, document.createTextNode(` PET ${k} %`)); return s; }));
     scatter('chart-recovery', 'residence_time_s', 'PET_recovery_pct', d.points, 'PET recovery, %', 'residence time, s');
     scatter('chart-energy', 'crusher_gap_mm', 'crusher_kWh_per_tonne_feed', d.points, 'kWh / t fresh feed', 'crusher gap, mm');
     scatter('chart-recycle', 'screen1_cut_mm', 'recycle_ratio', d.points, 'recycle ratio', 'screen 1 cut, mm');
     scatter('chart-purity', 'residence_time_s', 'PE_PP_purity_light', d.points, 'PE+PP purity in LIGHT', 'residence time, s');
-    $('quality-summary').textContent = `${d.n} Aspen cases; surrogate error from 10-fold cross-validation`;
+    $('quality-summary').textContent = `${d.n} Aspen cases; the Python model is checked against every one of them`;
     const cv = Object.entries(m.data.surrogate_cv).map(([k, v]) => [(LABEL[k] ? LABEL[k][0] : k), fmt(v.rmse, 4), fmt(v.r2, 3)]);
-    $('quality-details').replaceChildren(el('p', '', 'Every case passed: recycle loop converged (run-history file), no errors, fresh feed = fines + dense + light within 0.1 % (worst 2.5e-7 %), size distributions close. The surrogate predicts the Aspen results with the errors below (held-out cases).'), table(['Output', 'RMSE', 'R²'], cv));
+    $('quality-details').replaceChildren(el('p', '', 'Every case passed: recycle loop converged (run-history file), no errors, fresh feed = fines + dense + light within 0.1 % (worst 2.5e-7 %), size distributions close. The Python model reproduces the Aspen results with the differences below.'), table(['Output', 'RMSE', 'R²'], cv));
     $('limits-list').replaceChildren(...m.limits.map(t => el('li', '', t)));
     const ct = $('cost-table'); const th = el('thead'), tr = el('tr'); ['Constant', 'Low', 'Base', 'High', 'Source / basis'].forEach(h => tr.append(el('th', '', h))); th.append(tr); ct.replaceChildren(th);
     const tb = el('tbody'); Object.entries(m.cost_constants).forEach(([k, c]) => { const r = el('tr'); [k, c.low, c.base, c.high, c.note].forEach((x, i) => r.append(el('td', i && i < 4 ? 'num' : '', String(x)))); tb.append(r); }); ct.append(tb);

@@ -87,7 +87,7 @@ def estimate(pet: float, variables: dict, feed_rate_kg_h: float = 300.0, hours_p
     if hours_per_year <= 0 or hours_per_year > 8760:
         raise ValueError("operating hours must be in (0, 8760]")
     loc = {**LOCATION_DEFAULT, **(location or {})}
-    model = model or S.Surrogate.load()
+    model = model or S.load_model()
     v = variables
     p = {k: float(a[0]) for k, a in model.predict(pet, v["crusher_gap_mm"], v["screen1_cut_mm"], v["screen2_cut_mm"], v["residence_time_s"], spread, 300.0).items()}
     sc = feed_rate_kg_h / 300.0
