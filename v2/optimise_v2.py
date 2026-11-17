@@ -125,6 +125,18 @@ def optimise(pet: float, constraints: dict, spread: float = 0.5, feed: float = S
             if ok.any():
                 kk = int(np.argmin(np.where(ok, o, np.inf)))
                 best_x, best_j, improved = cand[kk].copy(), float(o[kk]), True
+    # exact polish: scan each setting over its whole range (401 points) with the others fixed, repeat until nothing improves
+    for _ in range(4):
+        moved = False
+        for j in range(4):
+            cand = np.tile(best_x, (401, 1)); cand[:, j] = np.linspace(lo[j], hi[j], 401)
+            _, v, o, _ = evaluate(cand)
+            ok = (v <= 0) & (o < best_j - 1e-9)
+            if ok.any():
+                kk = int(np.argmin(np.where(ok, o, np.inf)))
+                best_x, best_j, moved = cand[kk].copy(), float(o[kk]), True
+        if not moved:
+            break
     p1, _, _, e1 = evaluate(best_x[None, :])
     pred = {k_: float(v_[0]) for k_, v_ in p1.items()}
     out = {"status": "ok", "pet": pet, "composition": S.composition_from_pet(pet), "spread": spread, "feed": feed,

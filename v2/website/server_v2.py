@@ -114,8 +114,8 @@ def validate(req: dict) -> tuple[dict, list, list]:
     top = _num(req.get("feed_top_size_mm"), "feed_top_size_mm", errs, 0, None, optional=True, lo_open=True, msg="Feed top particle size must be greater than 0 mm.")
     if top is not None:
         warns.append(f"Feed particle size is fixed in the simulations (top size 80 mm); your value of {top:g} mm was noted but not used.")
-    d50lo = _num(req.get("product_d50_min_mm"), "product_d50_min_mm", errs, 0, None, optional=True, msg="Minimum product d50 must be 0 mm or more.")
-    d50hi = _num(req.get("product_d50_max_mm"), "product_d50_max_mm", errs, 0, None, optional=True, lo_open=True, msg="Maximum product d50 must be greater than 0 mm.")
+    d50lo = _num(req.get("product_d50_min_mm"), "product_d50_min_mm", errs, 0, None, lo_open=True, msg="Minimum product d50 (mm) is required and must be greater than 0.")
+    d50hi = _num(req.get("product_d50_max_mm"), "product_d50_max_mm", errs, 0, None, lo_open=True, msg="Maximum product d50 (mm) is required and must be greater than 0.")
     if d50lo is not None and d50hi is not None and d50lo > d50hi:
         errs.append({"field": "product_d50_min_mm", "message": "Minimum product d50 must not exceed the maximum."})
     c["d50_min"], c["d50_max"] = d50lo, d50hi
@@ -199,6 +199,35 @@ def achievable(pet: float, n: int = 30000) -> dict:
             "d50_range_mm": [float(p["d50_coarse_mm"].min()), float(p["d50_coarse_mm"].max())]}
 
 
+LABELS = {"d50_min": "Minimum product d50", "d50_max": "Maximum product d50", "PET_purity_min": "PET purity", "PE_PP_purity_min": "PE/PP purity",
+          "PET_recovery_min": "PET recovery", "PEPP_recovery_min": "PE/PP recovery"}
+OBJ_TEXT = {"payback": "shortest payback", "profit": "highest annual profit", "recovery": "highest product recovery", "energy": "lowest crusher energy"}
+
+
+def explain(c: dict, v: dict, met: dict, warns: list) -> list[str]:
+    """Plain-language reasons for the returned settings: the active (binding) requirements and what does not move them."""
+    if c["mode"] != "optimise":
+        return ["These are the settings you entered; the numbers are predictions for them, not an optimum."]
+    cv = op._load_cv()
+    why = [f"Search goal: {OBJ_TEXT[c['objective']]}, with all your requirements met."]
+    active = []
+    for name, m in met.items():
+        key, _sense = op.LIMITS[name]
+        slack = abs(m["predicted"] - m["required"]) / op.SCALE[key]
+        if slack <= 1.6 * cv.get(key, {}).get("rmse", 0.0) / op.SCALE[key] + 1e-3:
+            active.append(LABELS[name])
+    if active:
+        why.append("These requirements are active (the settings sit exactly at their limit): " + ", ".join(active) + ".")
+    else:
+        why.append("None of your requirements is tight, so the goal alone decides the settings.")
+    for name, short in VAR_NAMES.items():
+        lo, hi = S.BOUNDS[short]
+        if v[name] <= lo + 0.01 * (hi - lo) or v[name] >= hi - 0.01 * (hi - lo):
+            why.append(f"{name.replace('_', ' ')} is at the edge of the simulated range ({lo:g}-{hi:g}): in this model a setting beyond it would help further, but it was not simulated.")
+    why.append("Feed rate, operating hours and polymer mix change flows, equipment size, cost and payback below. They do not change the best settings per kilogram, because flows and power scale linearly with feed rate.")
+    return why
+
+
 def make_proposal(req: dict) -> dict:
     c, errs, warns = validate(req)
     if errs:
@@ -244,6 +273,7 @@ def make_proposal(req: dict) -> dict:
             warns.append(f"{name.replace('_', ' ')} = {v[name]:g} is at the edge of the simulated range ({lo:g}-{hi:g}); a better setting may exist outside it.")
     with price_overrides(c["prices"]):
         cost = cs.estimate(pet, v, c["feed"], c["hours_per_year"], c["budget"], c["spread"], c["location"], MODEL)
+    out["why"] = explain(c, v, met, warns)
     out.update({"variables": v, "predicted": {k: _pm(k, pred_all[k]) for k in SHOW}, "spread_sensitivity": sens, "constraints_met": met,
                 "cost": cost, "annual_t": {"feed": sz.annual(c["feed"], c["hours_per_year"]), "dense": sz.annual(cost["flows_kg_h"]["dense"], c["hours_per_year"]),
                                            "light": sz.annual(cost["flows_kg_h"]["light"], c["hours_per_year"]), "fines": sz.annual(cost["flows_kg_h"]["fines"], c["hours_per_year"])}})

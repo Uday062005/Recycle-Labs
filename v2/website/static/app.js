@@ -22,6 +22,25 @@ function go(view) { document.querySelectorAll('.view').forEach(x => x.classList.
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => go(b.dataset.go)));
 
+const LIM = { pet: [30, 60], hdpe: [0, 70], pp: [0, 70] }, IDS = ['pet', 'hdpe', 'pp'];
+let prevCompo = { pet: 45, hdpe: 30, pp: 25 };
+const clampTo = (id, x) => Math.min(LIM[id][1], Math.max(LIM[id][0], x));
+function rebalance(changed) {
+  const vals = {}; IDS.forEach(i => vals[i] = prevCompo[i]);
+  vals[changed] = clampTo(changed, Number($(changed).value));
+  const others = IDS.filter(i => i !== changed), rest = 100 - vals[changed], prevSum = others.reduce((s, i) => s + prevCompo[i], 0);
+  others.forEach(i => vals[i] = prevSum > 0 ? rest * prevCompo[i] / prevSum : rest / 2);
+  for (let k = 0; k < 4; k++) {
+    let over = 0; others.forEach(i => { const c = clampTo(i, vals[i]); over += vals[i] - c; vals[i] = c; });
+    if (Math.abs(over) < 1e-9) break;
+    const free = others.filter(i => over > 0 ? vals[i] < LIM[i][1] - 1e-9 : vals[i] > LIM[i][0] + 1e-9);
+    if (!free.length) break; free.forEach(i => vals[i] += over / free.length);
+  }
+  IDS.forEach(i => vals[i] = Math.round(vals[i] * 2) / 2);
+  const drift = 100 - IDS.reduce((s, i) => s + vals[i], 0);
+  if (Math.abs(drift) > 1e-9) { const t = others.reduce((a, b) => vals[a] >= vals[b] ? a : b); vals[t] += drift; }
+  IDS.forEach(i => { $(i).value = vals[i]; $('val-' + i).textContent = fmt(vals[i], 1); }); prevCompo = vals;
+}
 function updateCompo() {
   const ids = ['pet', 'hdpe', 'pp'], arr = ids.map(id => Number($(id).value));
   const total = arr.reduce((a, b) => a + b, 0);
@@ -31,7 +50,7 @@ function updateCompo() {
   $('composition-status').classList.toggle('error', !okay);
   return okay;
 }
-['pet', 'hdpe', 'pp'].forEach(id => $(id).addEventListener('input', updateCompo)); updateCompo();
+IDS.forEach(id => $(id).addEventListener('input', () => { rebalance(id); updateCompo(); })); updateCompo();
 $('mode').addEventListener('change', () => { $('manual-box').hidden = $('mode').value !== 'evaluate'; $('objective-box').hidden = $('mode').value === 'evaluate'; });
 
 const opt = id => { const s = $(id).value.trim(); return s === '' ? null : Number(s); };
@@ -79,6 +98,7 @@ function renderProposal(p) {
   $('recommendation-subtitle').textContent = p.mode === 'optimise' ? ({ payback: 'Settings with the shortest payback that meet your requirements', profit: 'Settings with the highest annual profit that meet your requirements', recovery: 'Settings with the highest product recovery that meet your requirements', energy: 'Lowest-energy settings that meet your requirements' }[p.objective] || 'Optimised settings') : 'Predictions for your own settings';
   $('selection-method').textContent = (p.mode === 'optimise' ? 'OPTIMISED SETTINGS' : 'YOUR SETTINGS') + ' · SURROGATE PREDICTION · NOT A LIVE ASPEN RUN';
   body.append(section('Operating settings', gridItems([['Crusher gap', fmt(v.crusher_gap_mm, 2) + ' mm'], ['Screen 1 cut', fmt(v.screen1_cut_mm, 2) + ' mm'], ['Screen 2 cut', fmt(v.screen2_cut_mm, 2) + ' mm'], ['Tank residence', fmt(v.residence_time_s, 1) + ' s']])));
+  if (p.why && p.why.length) body.append(section('Why these settings', list(p.why)));
   if (p.warnings.length) body.append(section('Notes for this case', list(p.warnings)));
   if (Object.keys(p.constraints_met).length) {
     body.append(section('Your requirements', table(['Requirement', 'Required', 'Predicted', ''], Object.entries(p.constraints_met).map(([k, m]) => {
