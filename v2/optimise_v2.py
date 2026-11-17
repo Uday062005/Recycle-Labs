@@ -29,6 +29,14 @@ LIMITS = {"d50_min": ("d50_coarse_mm", ">="), "d50_max": ("d50_coarse_mm", "<=")
 SCALE = {"d50_coarse_mm": 1.0, "PET_purity_dense": 0.01, "PE_PP_purity_light": 0.01, "PET_recovery_pct": 1.0, "PEPP_recovery_pct": 1.0}   # violation scale (units)
 
 
+NUMERIC_FLOOR = 0.005     # fraction of an output's violation scale kept as a numerical margin: returned settings are rounded to 3 decimals
+
+
+def _margins(constraints: dict, cv: dict, safety: float) -> dict:
+    """Distance kept from each limit: safety x model-vs-Aspen RMSE, but never less than NUMERIC_FLOOR x the output's scale (so rounding cannot break a limit)."""
+    return {LIMITS[n][0]: max(safety * cv.get(LIMITS[n][0], {}).get("rmse", 0.0), NUMERIC_FLOOR * SCALE[LIMITS[n][0]]) for n in constraints}
+
+
 def _load_cv() -> dict:
     return json.loads(S.MODEL_JSON.read_text()).get("cv", {})
 
@@ -78,7 +86,7 @@ def optimise(pet: float, constraints: dict, spread: float = 0.5, feed: float = S
         raise ValueError(f"unknown constraints {bad}; allowed {sorted(LIMITS)}")
     model = model or S.load_model()
     cv = _load_cv()
-    margin = {LIMITS[n][0]: safety * cv.get(LIMITS[n][0], {}).get("rmse", 0.0) for n in constraints}
+    margin = _margins(constraints, cv, safety)
     rec_key = "PET_recovery_pct" if target == "pet" else "PEPP_recovery_pct"
     need_econ = objective in ("payback", "profit") or budget is not None
     b = [S.BOUNDS[k] for k in DECISION]
