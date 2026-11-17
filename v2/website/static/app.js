@@ -267,9 +267,6 @@ async function loadData() {
     scatter('chart-fines', 'screen2_cut_mm', 'fines_loss_pct', d.points, 'fines loss, %', 'screen 2 cut, mm');
     scatter('chart-tradeoff', 'crusher_kWh_per_tonne_feed', 'PET_recovery_pct', d.points, 'PET recovery, %', 'crusher energy, kWh / t');
     loadCurves();
-    $('quality-summary').textContent = `${fmt(sm.aspen_cases, 0)} Aspen cases; the Python model is checked against every one of them`;
-    const cv = Object.entries(m.data.surrogate_cv).map(([k, v]) => [(LABEL[k] ? LABEL[k][0] : k), fmt(v.rmse, 4), fmt(v.r2, 3)]);
-    $('quality-details').replaceChildren(el('p', '', `Every Aspen case passed: recycle loop converged (run-history file), no errors, fresh feed = fines + dense + light within 0.1 % (worst ${Number(sm.max_balance_error_pct).toExponential(1)} %), size distributions close. The Python model reproduces the Aspen results with the differences below.`), table(['Output', 'RMSE (model - Aspen)', 'R²'], cv));
     $('limits-list').replaceChildren(...m.limits.map(t => el('li', '', t)));
     const ct = $('cost-table'); const th = el('thead'), tr = el('tr'); ['Constant', 'Low', 'Base', 'High', 'Source / basis'].forEach(h => tr.append(el('th', '', h))); th.append(tr); ct.replaceChildren(th);
     const tb = el('tbody'); Object.entries(m.cost_constants).forEach(([k, c]) => { const r = el('tr'); [k, c.low, c.base, c.high, c.note].forEach((x, i) => r.append(el('td', i && i < 4 ? 'num' : '', String(x)))); tb.append(r); }); ct.append(tb);
