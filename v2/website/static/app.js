@@ -21,25 +21,33 @@ function toast(msg, bad = false) { const t = $('toast'); t.textContent = msg; t.
 function go(view) { document.querySelectorAll('.view').forEach(x => x.classList.toggle('visible', x.id === 'view-' + view)); document.querySelectorAll('.nav').forEach(x => x.classList.toggle('active', x.dataset.view === view)); $('page-crumb').textContent = VIEWS[view]; window.scrollTo({ top: 0, behavior: 'smooth' }); }
 document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => go(b.dataset.view)));
 document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => go(b.dataset.go)));
+{ const startView = location.hash.slice(1); if (VIEWS[startView]) go(startView); }      // e.g. /#calculator opens that page
 
 const LIM = { pet: [20, 70], hdpe: [0, 70], pp: [0, 70] }, IDS = ['pet', 'hdpe', 'pp'];
-let prevCompo = { pet: 45, hdpe: 30, pp: 25 };
+let touched = [];                                           // sliders in the order the user last moved them (most recent last)
 const clampTo = (id, x) => Math.min(LIM[id][1], Math.max(LIM[id][0], x));
+const half = x => Math.round(x * 2) / 2;
 function rebalance(changed) {
-  const vals = {}; IDS.forEach(i => vals[i] = prevCompo[i]);
-  vals[changed] = clampTo(changed, Number($(changed).value));
-  const others = IDS.filter(i => i !== changed), rest = 100 - vals[changed], prevSum = others.reduce((s, i) => s + prevCompo[i], 0);
-  others.forEach(i => vals[i] = prevSum > 0 ? rest * prevCompo[i] / prevSum : rest / 2);
-  for (let k = 0; k < 4; k++) {
-    let over = 0; others.forEach(i => { const c = clampTo(i, vals[i]); over += vals[i] - c; vals[i] = c; });
-    if (Math.abs(over) < 1e-9) break;
-    const free = others.filter(i => over > 0 ? vals[i] < LIM[i][1] - 1e-9 : vals[i] > LIM[i][0] + 1e-9);
-    if (!free.length) break; free.forEach(i => vals[i] += over / free.length);
+  const cur = {}; IDS.forEach(i => cur[i] = Number($(i).value));
+  let x = clampTo(changed, half(cur[changed]));
+  const others = IDS.filter(i => i !== changed);
+  const pos = i => touched.lastIndexOf(i);
+  const vals = { [changed]: x };
+  if (pos(others[0]) < 0 && pos(others[1]) < 0) {           // nothing set yet: share the remainder in proportion
+    const rest = 100 - x, sum = cur[others[0]] + cur[others[1]];
+    vals[others[0]] = half(sum > 0 ? rest * cur[others[0]] / sum : rest / 2);
+    vals[others[1]] = 100 - x - vals[others[0]];
+  } else {                                                  // the slider moved most recently stays put; the other one absorbs the change
+    const lockedId = pos(others[0]) > pos(others[1]) ? others[0] : others[1], freeId = lockedId === others[0] ? others[1] : others[0];
+    let l = cur[lockedId], f = 100 - x - l;
+    if (f < LIM[freeId][0] || f > LIM[freeId][1]) {          // not possible: stop the moved slider first, move the locked one only as a last resort
+      f = clampTo(freeId, f); x = 100 - l - f;
+      if (x < LIM[changed][0] || x > LIM[changed][1]) { x = clampTo(changed, x); l = clampTo(lockedId, 100 - x - f); }
+    }
+    vals[changed] = half(x); vals[lockedId] = half(l); vals[freeId] = 100 - vals[changed] - vals[lockedId];
   }
-  IDS.forEach(i => vals[i] = Math.round(vals[i] * 2) / 2);
-  const drift = 100 - IDS.reduce((s, i) => s + vals[i], 0);
-  if (Math.abs(drift) > 1e-9) { const t = others.reduce((a, b) => vals[a] >= vals[b] ? a : b); vals[t] += drift; }
-  IDS.forEach(i => { $(i).value = vals[i]; $('val-' + i).textContent = fmt(vals[i], 1); }); prevCompo = vals;
+  IDS.forEach(i => { $(i).value = vals[i]; $('val-' + i).textContent = fmt(vals[i], 1); });
+  touched = touched.filter(i => i !== changed).concat(changed);
 }
 function updateCompo() {
   const ids = ['pet', 'hdpe', 'pp'], arr = ids.map(id => Number($(id).value));
@@ -131,9 +139,26 @@ function renderProposal(p) {
   body.append(section('Limits of this proposal', list(p.limits)));
 }
 
+function rangeProblems() {
+  const out = []; document.querySelectorAll('#design-form input').forEach(i => i.classList.remove('invalid'));
+  document.querySelectorAll('#design-form input[type=number]').forEach(i => {
+    if (i.closest('[hidden]') || i.value.trim() === '') return;
+    const v = Number(i.value), lo = i.min === '' ? null : Number(i.min), hi = i.max === '' ? null : Number(i.max);
+    if (!Number.isFinite(v) || (lo !== null && v < lo) || (hi !== null && v > hi)) {
+      const name = (i.closest('label').childNodes[0].textContent || i.id).trim();
+      out.push(name + ' must be ' + (lo !== null && hi !== null ? 'between ' + lo + ' and ' + hi : lo !== null ? lo + ' or more' : 'a number') + '.'); i.classList.add('invalid');
+    }
+  });
+  const d1 = opt('d50min'), d2 = opt('d50max'); if (d1 !== null && d2 !== null && d1 > d2) { out.push('Product d50 min must not exceed d50 max.'); $('d50min').classList.add('invalid'); }
+  const h = opt('hours'), d = opt('days'); if (h !== null && d !== null && h * d > 8760) { out.push('Operating hours per day x days per year must not exceed 8,760.'); $('hours').classList.add('invalid'); }
+  return out;
+}
+
 async function submit(e) {
   e.preventDefault();
   const fe = $('form-errors'); fe.hidden = true; fe.replaceChildren();
+  const problems = rangeProblems();
+  if (problems.length) { fe.hidden = false; fe.append(el('strong', '', 'Please check your inputs:'), list(problems, 'err-list')); toast('Some inputs are outside their allowed range.', true); return; }
   FX = opt('fx'); if (FX !== null && !(FX > 0)) FX = null;
   if (!updateCompo()) { toast('Polymer composition must total 100 %.', true); }
   const btn = $('go-btn'); btn.disabled = true;
@@ -187,6 +212,6 @@ async function loadData() {
     $('limits-list').replaceChildren(...m.limits.map(t => el('li', '', t)));
     const ct = $('cost-table'); const th = el('thead'), tr = el('tr'); ['Constant', 'Low', 'Base', 'High', 'Source / basis'].forEach(h => tr.append(el('th', '', h))); th.append(tr); ct.replaceChildren(th);
     const tb = el('tbody'); Object.entries(m.cost_constants).forEach(([k, c]) => { const r = el('tr'); [k, c.low, c.base, c.high, c.note].forEach((x, i) => r.append(el('td', i && i < 4 ? 'num' : '', String(x)))); tb.append(r); }); ct.append(tb);
-  } catch (err) { $('side-status-text').textContent = 'Data service unavailable'; toast('Cannot reach the ReSort data service.', true); }
+  } catch (err) { $('side-status-text').textContent = 'Data service unavailable'; toast('Cannot reach the Recycle-Labs data service.', true); }
 }
 loadData();
