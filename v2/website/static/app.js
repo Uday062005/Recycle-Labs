@@ -251,9 +251,9 @@ async function loadData() {
     const [m, d] = await Promise.all([fetch('/api/meta', { cache: 'no-store' }).then(r => r.json()), fetch('/api/dataset', { cache: 'no-store' }).then(r => r.json())]);
     META = m; const sm = m.data.summary;
     $('side-status-text').textContent = `${d.n} Aspen cases • model ready`; document.querySelector('.status-dot').classList.add('connected');
-    $('hero-aspen').textContent = fmt(sm.aspen_cases, 0); $('hero-model').textContent = fmt(sm.model_rows, 0);
-    $('overview-total').textContent = fmt(sm.total_rows, 0);
-    $('overview-total-caption').textContent = `${fmt(sm.aspen_cases, 0)} Aspen Plus cases (${fmt(sm.aspen_rows, 0)} rows) + ${fmt(sm.model_rows, 0)} rows from the Aspen-checked Python model`;
+    const big = fmt(sm.model_rows, 0) + '+'; $('hero-total').textContent = big;
+    $('overview-total').textContent = big;
+    $('overview-total-caption').textContent = `${fmt(sm.aspen_cases, 0)} run in Aspen Plus, the rest with our Aspen-checked Python model`;
     $('overview-case-count').textContent = fmt(sm.aspen_cases, 0); $('overview-case-caption').textContent = 'Direct Aspen Plus runs, all converged and mass-balance checked';
     $('overview-r2').textContent = sm.model_max_rel_difference ? Number(sm.model_max_rel_difference).toExponential(1).replace('e-', 'e-') : '—';
     const B = m.bounds, rr = [['Feed rate', fmt(B.feed_kg_h[0], 0) + ' – ' + fmt(B.feed_kg_h[1], 0), 'kg/h'], ['PET share of the feed', fmt(B.pet_pct[0], 0) + ' – ' + fmt(B.pet_pct[1], 0), '%'],
