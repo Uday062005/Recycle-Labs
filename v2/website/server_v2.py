@@ -37,8 +37,8 @@ CV = json.loads(S.MODEL_JSON.read_text())["cv"]
 SPREADS = {"low": tk.CONFIG["spread_low"], "default": tk.CONFIG["spread"], "high": tk.CONFIG["spread_high"]}
 FEED_RANGE = (100.0, 500.0)
 VAR_NAMES = {"crusher_gap_mm": "gap", "screen1_cut_mm": "s1", "screen2_cut_mm": "s2", "residence_time_s": "tau"}
-PRICE_MAP = {"dense_usd_t": "price_dense_usd_t", "light_usd_t": "price_light_usd_t", "scrap_usd_t": "price_scrap_usd_t",
-             "electricity_usd_kwh": "electricity_usd_kWh", "wage_usd_h": "wage_usd_h"}
+PRICE_MAP = {"dense_inr_t": "price_dense_inr_t", "light_inr_t": "price_light_inr_t", "scrap_inr_t": "price_scrap_inr_t",
+             "electricity_inr_kwh": "electricity_inr_kWh", "wage_inr_h": "wage_inr_h"}
 SHOW = ["PET_purity_dense", "PE_PP_purity_light", "PET_recovery_pct", "PEPP_recovery_pct", "PET_loss_to_light_pct", "PEPP_loss_to_dense_pct",
         "yield_pct", "fines_loss_pct", "recycle_ratio", "d50_coarse_mm", "crusher_kWh_per_tonne_feed"]
 LIMITS = [
@@ -124,7 +124,7 @@ def validate(req: dict) -> tuple[dict, list, list]:
         errs.append({"field": "target", "message": "Preferred output must be 'pet' (PET-rich flakes) or 'light' (PP + HDPE-rich flakes)."})
     c["purity"] = _num(req.get("min_purity_pct"), "min_purity_pct", errs, 0, 100, optional=True, msg="Minimum purity must be between 0 and 100 %.")
     c["recovery"] = _num(req.get("min_recovery_pct"), "min_recovery_pct", errs, 0, 100, optional=True, msg="Minimum recovery must be between 0 and 100 %.")
-    c["budget"] = _num(req.get("budget_usd"), "budget_usd", errs, 0, None, optional=True, msg="Budget must be 0 or more.")
+    c["budget"] = _num(req.get("budget_inr"), "budget_inr", errs, 0, None, optional=True, msg="Budget must be 0 or more.")
     loc = req.get("location_factors") or {}
     c["location"] = {}
     for k, label in (("capex_factor", "Capex factor"), ("labour_factor", "Labour factor"), ("electricity_factor", "Electricity factor"), ("water_factor", "Water factor")):

@@ -2,10 +2,10 @@
 // Recycle-Labs browser UI. Calls /api/proposal, /api/curves, /api/meta and /api/dataset (Python flowsheet model + optimiser + sizing + cost). No Aspen at request time. All server text is inserted with textContent.
 const $ = id => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
-let META = null, FX = null;
+let META = null;
 const NF = (d) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: d, minimumFractionDigits: d });
 const fmt = (x, d = 1) => (x === null || x === undefined || !Number.isFinite(x)) ? '—' : NF(d).format(x);
-const usd = x => { if (x === null || x === undefined) return '—'; const s = '$ ' + fmt(x, 0); return FX ? s + '  (₹ ' + fmt(x * FX, 0) + ')' : s; };
+const inr = x => { if (x === null || x === undefined) return '—'; return '₹ ' + fmt(x, 0); };
 const VIEWS = { overview: 'Overview', calculator: 'Design calculator', insights: 'Simulation insights', method: 'Model & limitations' };
 const LABEL = {
   PET_purity_dense: ['PET purity in DENSE', v => fmt(100 * v, 2) + ' %'], PE_PP_purity_light: ['PE+PP purity in LIGHT', v => fmt(100 * v, 2) + ' %'],
@@ -63,13 +63,13 @@ $('mode').addEventListener('change', () => { $('manual-box').hidden = $('mode').
 
 const opt = id => { const s = $(id).value.trim(); return s === '' ? null : Number(s); };
 function buildRequest() {
-  const prices = {}; [['dense_usd_t', 'p-dense'], ['light_usd_t', 'p-light'], ['scrap_usd_t', 'p-scrap'], ['electricity_usd_kwh', 'p-power'], ['wage_usd_h', 'p-wage']].forEach(([k, id]) => { const v = opt(id); if (v !== null) prices[k] = v; });
+  const prices = {}; [['dense_inr_t', 'p-dense'], ['light_inr_t', 'p-light'], ['scrap_inr_t', 'p-scrap'], ['electricity_inr_kwh', 'p-power'], ['wage_inr_h', 'p-wage']].forEach(([k, id]) => { const v = opt(id); if (v !== null) prices[k] = v; });
   const lf = {}; [['capex_factor', 'f-capex'], ['labour_factor', 'f-labour']].forEach(([k, id]) => { const v = opt(id); if (v !== null) lf[k] = v; });
   const req = {
     feed_rate_kg_h: opt('feed'), hours_per_day: opt('hours'), days_per_year: opt('days'), mode: $('mode').value, objective: $('objective').value,
     composition: { PET: opt('pet'), HDPE: opt('hdpe'), PP: opt('pp') },
     product_d50_min_mm: opt('d50min'), product_d50_max_mm: opt('d50max'), target: $('target').value, min_purity_pct: opt('purity'), min_recovery_pct: opt('recovery'),
-    budget_usd: opt('budget'), prices, location_factors: lf
+    budget_inr: opt('budget'), prices, location_factors: lf
   };
   if (req.mode === 'evaluate') req.variables = { crusher_gap_mm: opt('v-gap'), screen1_cut_mm: opt('v-s1'), screen2_cut_mm: opt('v-s2'), residence_time_s: opt('v-tau') };
   return req;
@@ -137,12 +137,12 @@ function renderProposal(p) {
     ['Sink-float tank', `${fmt(z.tank.volume_m3, 2)} m³ (calc. ${fmt(z.tank.volume_calc_m3, 3)} m³)`]])));
   const sc = c.scenarios, S = ['optimistic', 'base', 'pessimistic'];
   const pb = x => x === null ? 'no payback' : fmt(x, 1) + ' years';
-  body.append(section('Cost and payback (ranges, USD)', table(['', 'Optimistic', 'Base', 'Pessimistic'], [
-    ['Installed capex', ...S.map(n => usd(sc[n].capex_usd))], ['Operating cost / year', ...S.map(n => usd(sc[n].opex_usd_per_year.total))],
-    ['Scrap purchase / year', ...S.map(n => usd(sc[n].scrap_purchase_usd_per_year))], ['Product revenue / year', ...S.map(n => usd(sc[n].revenue_usd_per_year.total))],
-    ['Net cash / year', ...S.map(n => usd(sc[n].net_usd_per_year))], ['Simple payback', ...S.map(n => pb(sc[n].payback_years))]]),
+  body.append(section('Cost and payback (ranges, INR)', table(['', 'Optimistic', 'Base', 'Pessimistic'], [
+    ['Installed capex', ...S.map(n => inr(sc[n].capex_inr))], ['Operating cost / year', ...S.map(n => inr(sc[n].opex_inr_per_year.total))],
+    ['Scrap purchase / year', ...S.map(n => inr(sc[n].scrap_purchase_inr_per_year))], ['Product revenue / year', ...S.map(n => inr(sc[n].revenue_inr_per_year.total))],
+    ['Net cash / year', ...S.map(n => inr(sc[n].net_inr_per_year))], ['Simple payback', ...S.map(n => pb(sc[n].payback_years))]]),
     el('p', 'help', 'Capex ±30 %, opex ±20 %, product prices and scrap cost at low/base/high. Payback is dominated by the price gap between products and scrap.')));
-  const bd = c.budget; const bs = el('div', 'result-highlight'); bs.append(el('span', '', 'BUDGET CHECK'), el('strong', '', bd.status)); if (bd.shortfall_base_usd > 0) bs.append(el('span', '', 'Shortfall at the base estimate: ' + usd(bd.shortfall_base_usd)));
+  const bd = c.budget; const bs = el('div', 'result-highlight'); bs.append(el('span', '', 'BUDGET CHECK'), el('strong', '', bd.status)); if (bd.shortfall_base_inr > 0) bs.append(el('span', '', 'Shortfall at the base estimate: ' + inr(bd.shortfall_base_inr)));
   body.append(bs);
   body.append(section('Limits of this proposal', list(p.limits)));
 }

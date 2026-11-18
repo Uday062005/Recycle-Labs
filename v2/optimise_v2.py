@@ -71,7 +71,7 @@ def optimise(pet: float, constraints: dict, spread: float = 0.5, feed: float = S
     """objective: 'energy' (lowest crusher kWh/t, the original), 'payback' (shortest simple payback), 'profit' (highest annual net cash),
     'recovery' (highest recovery of the preferred product). The money objectives use the real feed rate (`plant_feed_kg_h`), operating hours,
     prices (current cost.COSTS) and equipment sizes (motor steps, screen area, tank volume), so the best settings can change with them.
-    `budget` (USD) is a constraint on the installed capex of the chosen scenario (0 optimistic, 1 base, 2 pessimistic)."""
+    `budget` (INR) is a constraint on the installed capex of the chosen scenario (0 optimistic, 1 base, 2 pessimistic)."""
     import cost_v2 as cs
     if objective not in OBJECTIVES:
         raise ValueError(f"objective must be one of {OBJECTIVES}")
@@ -96,15 +96,15 @@ def optimise(pet: float, constraints: dict, spread: float = 0.5, feed: float = S
         v = _violation(p, constraints, margin)
         e = cs.economics_vec(p, x, pet, plant_feed, hours_per_year, scenario, location) if need_econ else None
         if budget is not None:
-            v = np.maximum(v, (e["capex_usd"] - budget) / (0.01 * max(budget, 1.0)))     # 1 unit = 1 % over budget
+            v = np.maximum(v, (e["capex_inr"] - budget) / (0.01 * max(budget, 1.0)))     # 1 unit = 1 % over budget
         if objective == "energy":
             o = _objective(p, x)
         elif objective == "recovery":
             o = -p[rec_key] + 1e-3 * _objective(p, x)
         elif objective == "profit":
-            o = -e["net_usd_per_year"] - 0.01 * p[rec_key]               # tie-break: equal money -> higher recovery of the preferred product
+            o = -e["net_inr_per_year"] - 0.01 * p[rec_key]               # tie-break: equal money -> higher recovery of the preferred product
         else:   # payback: any positive cash flow beats none; with no payback, the larger (less negative) net cash ranks first
-            o = np.where(np.isfinite(e["payback_years"]), e["payback_years"], 1e6 - e["net_usd_per_year"] / 1e3) - 1e-4 * p[rec_key]
+            o = np.where(np.isfinite(e["payback_years"]), e["payback_years"], 1e6 - e["net_inr_per_year"] / 1e3) - 1e-4 * p[rec_key]
         return p, v, o, e
 
     rng = np.random.default_rng(seed)
@@ -153,7 +153,7 @@ def optimise(pet: float, constraints: dict, spread: float = 0.5, feed: float = S
            "objective": best_j, "objective_name": objective, "predicted": pred, "constraints": constraints, "safety": safety,
            "n_feasible_of_random": int(feas.sum()), "n_random": n_samples}
     if e1 is not None:
-        out["economics_scenario"] = {"capex_usd": float(e1["capex_usd"][0]), "net_usd_per_year": float(e1["net_usd_per_year"][0]),
+        out["economics_scenario"] = {"capex_inr": float(e1["capex_inr"][0]), "net_inr_per_year": float(e1["net_inr_per_year"][0]),
                                      "payback_years": None if not np.isfinite(e1["payback_years"][0]) else float(e1["payback_years"][0])}
     return out
 
