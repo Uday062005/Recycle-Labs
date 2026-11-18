@@ -46,6 +46,17 @@ function rebalance(changed) {
     }
     vals[changed] = half(x); vals[lockedId] = half(l); vals[freeId] = 100 - vals[changed] - vals[lockedId];
   }
+  const total = IDS.reduce((s, i) => s + vals[i], 0);
+  if (!IDS.every(i => vals[i] >= LIM[i][0] && vals[i] <= LIM[i][1]) || Math.abs(total - 100) > 1e-9) {   // safety net: nearest valid mix (moved slider kept as close as possible)
+    const x0 = clampTo(changed, half(cur[changed])), [o0, o1] = others; let best = null;
+    for (let a = LIM[changed][0] * 2; a <= LIM[changed][1] * 2; a++) for (let b = LIM[o0][0] * 2; b <= LIM[o0][1] * 2; b++) {
+      const xa = a / 2, xb = b / 2, xc = 100 - xa - xb;
+      if (xc < LIM[o1][0] || xc > LIM[o1][1]) continue;
+      const cost = Math.abs(xa - x0) * 1000 + Math.abs(xb - cur[o0]) + Math.abs(xc - cur[o1]);
+      if (!best || cost < best.cost) best = { cost, v: { [changed]: xa, [o0]: xb, [o1]: xc } };
+    }
+    if (best) Object.assign(vals, best.v);
+  }
   IDS.forEach(i => { $(i).value = vals[i]; $('val-' + i).textContent = fmt(vals[i], 1); });
   touched = touched.filter(i => i !== changed).concat(changed);
 }
@@ -168,18 +179,19 @@ async function submit(e) {
   const problems = rangeProblems();
   if (problems.length) { fe.hidden = false; fe.append(el('strong', '', 'Please check your inputs:'), list(problems, 'err-list')); toast('Some inputs are outside their allowed range.', true); return; }
   if (!updateCompo()) { toast('Polymer composition must total 100 %.', true); }
-  const btn = $('go-btn'); btn.disabled = true;
+  const btn = $('go-btn'), btnHtml = btn.innerHTML; btn.disabled = true; btn.textContent = 'Calculating…';
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 30000);   // never wait forever
   try {
-    const r = await fetch('/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildRequest()) });
-    const data = await r.json();
-    if (r.status === 422) {
+    const r = await fetch('/api/proposal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildRequest()), signal: ctl.signal });
+    let data = null; try { data = await r.json(); } catch (_) { /* not JSON (e.g. a gateway timeout page) */ }
+    if (r.status === 422 && data && data.errors) {
       fe.hidden = false; fe.append(el('strong', '', 'Please check your inputs:'), list(data.errors.map(x => x.message), 'err-list')); toast('Some inputs need attention.', true); return;
     }
-    if (!r.ok) throw new Error('Server returned ' + r.status);
+    if (!r.ok || !data) throw new Error('the server answered with status ' + r.status + '. Please try again');
     renderProposal(data);
     if (data.status === 'infeasible') toast('No setting meets all requirements.', true);
-  } catch (err) { toast('Could not generate the proposal: ' + err.message, true); }
-  finally { btn.disabled = false; }
+  } catch (err) { toast(err.name === 'AbortError' ? 'The calculation took longer than 30 s. Please press Generate proposal again.' : 'Could not generate the proposal: ' + err.message, true); }
+  finally { clearTimeout(timer); btn.disabled = false; btn.innerHTML = btnHtml; }
 }
 $('design-form').addEventListener('submit', submit);
 
